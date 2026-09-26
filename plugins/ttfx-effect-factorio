@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Trace the Factorio theme's OMARCHY rail wordmark as ttfx protocol frames."""
+"""Build text and art with a Factorio factory as ttfx protocol frames."""
 
 import argparse
 import os
+import re
 import struct
 import sys
 
@@ -16,9 +17,16 @@ GLYPHS = {
     "H": ("#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
     "Y": ("#...#", ".#.#.", "..#..", "..#..", "..#..", "..#..", "..#.."),
 }
-CELL_WIDTH = 2
-LETTER_GAP = 2
-ROW_SCALE = 3
+STEEL = "\033[38;2;105;105;96m"
+DIM_STEEL = "\033[38;2;65;67;63m"
+COPPER = "\033[38;2;193;112;62m"
+ORANGE = "\033[38;2;221;161;59m"
+YELLOW = "\033[38;2;237;194;86m"
+SPARK = "\033[38;2;248;232;194m"
+RED = "\033[38;2;200;94;64m"
+GREEN = "\033[38;2;163;167;82m"
+BACKGROUND = "\033[48;2;25;24;16m"
+RESET = "\033[0m"
 
 
 def neighbors(point, cells):
@@ -71,29 +79,116 @@ def rail_char(point, shown):
     return "oo"
 
 
-def draw(glyphs, completed, current, current_letter, cursor, width, height):
-    art_width = len(glyphs) * 5 * CELL_WIDTH + (len(glyphs) - 1) * LETTER_GAP * CELL_WIDTH
-    left = max(0, (width - art_width) // 2)
-    top = max(0, (height - 7 * ROW_SCALE) // 2)
-    rows = [[" "] * width for _ in range(height)]
-    for y in range(7):
-        for row in range(top + y * ROW_SCALE, top + (y + 1) * ROW_SCALE):
-            if row >= height:
-                continue
-            x = left
-            for index, (cells, _) in enumerate(glyphs):
-                shown = cells if index < completed else current if index == current_letter else set()
-                for cell_x in range(5):
-                    point = (cell_x, y)
-                    if point in shown:
-                        text = "<>" if index == current_letter and point == cursor else rail_char(point, shown)
-                        for offset, symbol in enumerate(text):
-                            if x + offset < width:
-                                rows[row][x + offset] = symbol
-                    x += CELL_WIDTH
-                if index < len(glyphs) - 1:
-                    x += LETTER_GAP * CELL_WIDTH
-    return "\n".join("".join(row) for row in rows)
+def make_target(text):
+    target = {}
+    route = []
+    if not text:
+        for index, letter in enumerate("OMARCHY"):
+            cells = {(x, y) for y, row in enumerate(GLYPHS[letter])
+                     for x, pixel in enumerate(row) if pixel == "#"}
+            for point in cells:
+                x, y = point
+                target[(index * 7 + x, y)] = rail_char(point, cells)
+            route.extend((index * 7 + x, y) for x, y in trace_order(cells))
+        return target, route, True
+
+    text = re.sub(r"\033\[[0-9;:]*m", "", text)
+    text = "".join(symbol for symbol in text
+                   if symbol.isprintable() or symbol in "\n\r\t")
+    for y, line in enumerate(text.expandtabs(4).splitlines()):
+        for x, symbol in enumerate(line):
+            if not symbol.isspace():
+                target[(x, y)] = symbol
+                route.append((x, y))
+    return target, route, False
+
+
+def draw(target, route, placed, current, heat, tick, width, height, wordmark):
+    rows = [[(" ", None) for _ in range(width)] for _ in range(height)]
+
+    def put(x, y, symbol, color):
+        if 0 <= x < width and 0 <= y < height:
+            rows[y][x] = (symbol, color)
+
+    art_width = max((x for x, _ in target), default=0) + 1
+    art_height = max((y for _, y in target), default=0) + 1
+    xscale = 2 if wordmark and art_width * 2 <= width else 1
+    yscale = 2 if wordmark and height >= 22 else 1
+    visible_height = min(art_height * yscale, max(1, height - 5))
+    left = max(0, (width - art_width * xscale) // 2)
+    top = max(0, min(max(2, (height - visible_height - 4) // 2),
+                     height - visible_height - 2))
+    belt_y = min(height - 2, top + visible_height + 1)
+    idle_pulse = None
+    if current is None and route and len(placed) == len(target):
+        idle_pulse = route[(tick // 3) % len(route)]
+
+    for (x, y), symbol in target.items():
+        if y * yscale >= visible_height:
+            continue
+        point = (x, y)
+        if point in placed:
+            color = COPPER if (x + y) % 3 else STEEL
+            age = tick - heat.get(point, -100)
+            if age == 0:
+                color = SPARK
+            elif age < 3:
+                color = YELLOW
+            elif age < 6:
+                color = ORANGE
+            elif point == idle_pulse:
+                color = GREEN
+        else:
+            color, symbol = DIM_STEEL, "."
+        for dy in range(yscale):
+            for dx in range(xscale):
+                put(left + x * xscale + dx, top + y * yscale + dy,
+                    symbol[dx] if wordmark and point in placed else symbol, color)
+
+    # Steel guide and inserter follow the cell being assembled.
+    if current is not None:
+        x, y = current
+        feed_x = left + x * xscale
+        feed_y = top + y * yscale
+        arm_x = feed_x + xscale
+        for offset in range(-2, 3):
+            put(feed_x + offset, top - 1, "+" if offset % 2 else "-", STEEL)
+        put(feed_x, feed_y, "*", SPARK if tick % 2 else YELLOW)
+        for arm_y in range(feed_y, belt_y):
+            if 0 <= arm_x < width and 0 <= arm_y < height and rows[arm_y][arm_x][0] in (" ", "."):
+                put(arm_x, arm_y, "/" if arm_y == feed_y else "|", ORANGE if (tick - arm_y) % 4 == 0 else STEEL)
+        put(arm_x, belt_y - 1, "^" if tick % 4 < 2 else "|", YELLOW)
+
+    # Circuit lights and belt remain live while the finished wordmark idles.
+    signal = GREEN if len(placed) == len(target) else RED
+    put(left, top - 2, "o", signal)
+    put(min(width - 1, left + art_width * xscale - 1), top - 2,
+        "o", GREEN if tick % 12 < 6 else RED)
+    for x in range(left, min(width, left + art_width * xscale)):
+        item = (x - tick) % 12
+        if item == 0:
+            put(x, belt_y, "[", ORANGE)
+        elif item == 1:
+            put(x, belt_y, "]", COPPER)
+        else:
+            put(x, belt_y, ">" if x % 3 == 0 else "=", STEEL)
+        put(x, belt_y + 1, "|" if x % 6 == 0 else "=", DIM_STEEL)
+    if current is not None:
+        feed_x = left + current[0] * xscale
+        put(feed_x, belt_y, "O", YELLOW)
+
+    output = []
+    for row in rows:
+        line = [BACKGROUND]
+        active_color = None
+        for symbol, color in row:
+            if color != active_color:
+                line.append(color or RESET + BACKGROUND)
+                active_color = color
+            line.append(symbol)
+        line.append(RESET)
+        output.append("".join(line))
+    return "\n".join(output)
 
 
 def emit(frame):
@@ -107,29 +202,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cycles", type=int, default=0, help="stop after N complete drawings (0 loops forever)")
     args = parser.parse_args()
-    text = sys.stdin.read().strip().upper() or "OMARCHY"
-    if any(letter not in GLYPHS for letter in text):
-        parser.error("input must contain only O, M, A, R, C, H, Y")
+    text = sys.stdin.read()
     width = int(os.environ["TTFX_CANVAS_WIDTH"])
     height = int(os.environ["TTFX_CANVAS_HEIGHT"])
     fps = int(os.environ.get("TTFX_FRAME_RATE", "60")) or 60
-    glyphs = []
-    for letter in text:
-        cells = {(x, y) for y, row in enumerate(GLYPHS[letter]) for x, pixel in enumerate(row) if pixel == "#"}
-        glyphs.append((cells, trace_order(cells)))
+    if not text and (width < 47 or height < 11):
+        text = "OMARCHY"
+    target, route, wordmark = make_target(text)
+    dwell = max(1, min(6, round(fps / max(1, len(route)))))
     cycles = 0
+    tick = 0
     while args.cycles == 0 or cycles < args.cycles:
-        for index, (_, route) in enumerate(glyphs):
-            shown = set()
-            for point in route:
-                shown.add(point)
-                emit(draw(glyphs, index, shown, index, point, width, height))
-            pause = draw(glyphs, index + 1, set(), index + 1, None, width, height)
-            for _ in range(max(1, round(fps * 0.25))):
-                emit(pause)
-        final = draw(glyphs, len(glyphs), set(), len(glyphs), None, width, height)
+        placed = set()
+        heat = {}
+        for point in route:
+            placed.add(point)
+            for _ in range(dwell):
+                heat[point] = tick
+                emit(draw(target, route, placed, point, heat, tick, width, height, wordmark))
+                tick += 1
         for _ in range(max(1, round(fps * 2))):
-            emit(final)
+            emit(draw(target, route, placed, None, {}, tick, width, height, wordmark))
+            tick += 1
         cycles += 1
 
 

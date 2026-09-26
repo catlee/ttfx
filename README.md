@@ -127,11 +127,13 @@ Theme packages can install an executable named `ttfx-effect-<name>` in a directo
 built-in names always select the built-in effect. For example, from this checkout:
 
 ```sh
-TTFX_EFFECT_PATH="$PWD/plugins" ttfx factorio          # loops the OMARCHY rail animation
+TTFX_EFFECT_PATH="$PWD/plugins" ttfx factorio          # loops the OMARCHY factory animation
 printf 'MARCH' | TTFX_EFFECT_PATH="$PWD/plugins" ttfx factorio --cycles 1
 ```
 
 The [Factorio plugin](plugins/ttfx-effect-factorio) is a standalone Python 3 executable
+that builds supplied text or multiline art cell by cell with a moving belt, feeder, and
+circuit lights. With empty input it builds an OMARCHY wordmark. Its fallback glyphs are
 adapted from `omarchy-factorio-theme/screensaver/omarchy-screensaver`. Copy or symlink it
 into a theme package's executable directory. ttfx itself does not need rebuilding.
 

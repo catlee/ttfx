@@ -65,7 +65,21 @@ for _ in range(2):
     line, out = out.split(b'\n', 1)
     frame, out = out[:int(line)], out[int(line) + 1:]
     assert len(frame.split(b'\n')) == 24
-    assert b'<>' in frame
+    assert b'\033[38;2;' in frame
+    assert b'*' in frame
 assert not out
 PY
 python3 tools/tests/plugin_resize.py "$RUST"
+python3 tools/tests/factorio_plugin.py
+printf 'FACTORIO' > "$tmp/input"
+TTFX_EFFECT_PATH="$PWD/plugins" COLUMNS=80 LINES=24 "$RUST" -i "$tmp/input" --frame-rate 12 --parity-dump --max-frames 3 factorio --cycles 1 > "$tmp/out" 2> "$tmp/err"
+grep -q 'frames=3' "$tmp/err"
+python3 - "$tmp/out" <<'PY'
+import pathlib, re, sys
+out = pathlib.Path(sys.argv[1]).read_bytes()
+for _ in range(3):
+    line, out = out.split(b'\n', 1)
+    frame, out = out[:int(line)], out[int(line) + 1:]
+assert b'F' in re.sub(rb'\033\[[0-9;]*m', b'', frame)
+assert not out
+PY
