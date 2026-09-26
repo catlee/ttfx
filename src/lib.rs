@@ -2,6 +2,7 @@ pub mod asm;
 pub mod cli;
 pub mod effects;
 pub mod engine;
+pub mod plugin;
 pub mod utils;
 
 use std::sync::atomic::{AtomicBool, Ordering};

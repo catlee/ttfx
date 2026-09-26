@@ -1,6 +1,6 @@
 # ttfx
 
-Terminal text effects as a single static binary. Pipe text in, pick an effect:
+Built-in terminal text effects as a single static binary. Pipe text in, pick an effect:
 
 ```sh
 ls -la | ttfx decrypt
@@ -107,8 +107,7 @@ in [`docs/ordering-inventory.md`](docs/ordering-inventory.md).
 **Two deliberate differences.** Random number generation is not bit-compatible with CPython —
 ttfx uses xoshiro256++, so `--seed` is reproducible within ttfx but won't match Python's
 Mersenne Twister. (The parity harness swaps a shared PRNG into both sides, which is what makes
-frame comparison possible at all.) And Python plugin effects aren't supported, since there's
-no interpreter to load them.
+frame comparison possible at all.)
 
 ## Usage
 
@@ -120,6 +119,33 @@ ttfx <effect> --help        # options for one effect
 ttfx --random-effect        # surprise me (--include-effects / --exclude-effects to filter)
 ttfx --print-completion bash|zsh
 ```
+
+### External effects
+
+Theme packages can install an executable named `ttfx-effect-<name>` in a directory on
+`PATH` or `TTFX_EFFECT_PATH` (a colon-separated directory list). Then `ttfx <name>` runs it;
+built-in names always select the built-in effect. For example, from this checkout:
+
+```sh
+TTFX_EFFECT_PATH="$PWD/plugins" ttfx factorio          # loops the OMARCHY rail animation
+printf 'MARCH' | TTFX_EFFECT_PATH="$PWD/plugins" ttfx factorio --cycles 1
+```
+
+The [Factorio plugin](plugins/ttfx-effect-factorio) is a standalone Python 3 executable
+adapted from `omarchy-factorio-theme/screensaver/omarchy-screensaver`. Copy or symlink it
+into a theme package's executable directory. ttfx itself does not need rebuilding.
+
+Plugin protocol (version 1): ttfx starts the executable with effect arguments unchanged,
+writes the complete UTF-8 input text to its stdin, then closes stdin. Empty input is allowed.
+It sets `TTFX_EFFECT_PROTOCOL=1`, plus `TTFX_CANVAS_WIDTH`, `TTFX_CANVAS_HEIGHT`, and
+`TTFX_FRAME_RATE` as decimal integers;
+the first two are the actual canvas size for this run. The plugin writes zero or more frames
+to stdout, each a 4-byte little-endian unsigned byte length followed by that many UTF-8
+bytes. A frame is the complete canvas, with rows separated by `\n` and no trailing newline.
+EOF ends the effect. Diagnostics go to stderr. Keep frames at or below 16 MiB. On resize ttfx
+stops the plugin and starts it again with new dimensions and the same input and arguments.
+ttfx owns terminal preparation, frame pacing, cursor restoration, and signal handling.
+`--parity-dump` and `--max-frames` also work with plugins for inspection.
 
 Terminal options (canvas size and anchoring, color handling, frame rate, text wrapping) go
 before the effect name; effect options after it. Option names and defaults match `tte`, so

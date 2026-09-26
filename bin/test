@@ -17,6 +17,7 @@ cd "$ROOT"
 cargo test --release
 "$ROOT/bin/build"
 ./tools/tests/cli_corpus.sh
+./tools/tests/plugin_protocol.sh
 python3 tools/tests/sigterm_behavior.py
 python3 tools/tests/terminal_close_behavior.py
 

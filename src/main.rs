@@ -71,6 +71,12 @@ fn main() -> ExitCode {
         None => get_piped_input(),
     };
 
+    if !cli.random_effect {
+        if let Some(ttfx::effects::EffectCommand::External(args)) = &cli.effect {
+            return ttfx::plugin::run(&cli, args, &input_data);
+        }
+    }
+
     if input_data.trim().is_empty() {
         ttfx::outln!("NO INPUT.");
         return ExitCode::from(1);

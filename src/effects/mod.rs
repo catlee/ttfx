@@ -41,6 +41,7 @@ pub mod waves;
 pub mod wipe;
 
 use clap::Subcommand;
+use std::ffi::OsString;
 
 use crate::engine::effect::Effect;
 
@@ -120,11 +121,15 @@ pub enum EffectCommand {
     Waves(waves::WavesConfig),
     /// Wipes the text across the terminal to reveal characters.
     Wipe(wipe::WipeConfig),
+    /// An executable effect supplied by a theme package.
+    #[command(external_subcommand)]
+    External(Vec<OsString>),
 }
 
 impl EffectCommand {
     pub fn build_effect(&self) -> Box<dyn Effect> {
         match self {
+            EffectCommand::External(_) => unreachable!("external effects run as processes"),
             EffectCommand::Beams(config) => Box::new(beams::Beams::new(config.clone())),
             EffectCommand::Binarypath(config) => Box::new(binarypath::BinaryPath::new(config.clone())),
             EffectCommand::Blackhole(config) => Box::new(blackhole::Blackhole::new(config.clone())),
@@ -167,6 +172,7 @@ impl EffectCommand {
 
     pub fn name(&self) -> &'static str {
         match self {
+            EffectCommand::External(_) => "external",
             EffectCommand::Beams(_) => "beams",
             EffectCommand::Binarypath(_) => "binarypath",
             EffectCommand::Blackhole(_) => "blackhole",
